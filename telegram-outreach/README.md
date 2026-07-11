@@ -25,6 +25,15 @@
 
 ## Настройка
 
+Сначала создайте локальные рабочие файлы из примеров:
+
+```bash
+cp contacts.example.csv contacts.csv
+cp queue.example.csv queue.csv
+```
+
+Реальные `contacts.csv` и `queue.csv` исключены из Git и не должны попадать в GitHub.
+
 Заполните `contacts.csv`. Для каждого контакта укажите либо `username`, либо телефон в международном формате E.164:
 
 ```csv
