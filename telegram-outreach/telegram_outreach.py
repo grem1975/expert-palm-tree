@@ -23,6 +23,7 @@ from pathlib import Path
 
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
+PHONE_RE = re.compile(r"^\+[1-9][0-9]{6,14}$")
 TRUE_VALUES = {"1", "true", "yes", "y", "да"}
 
 
@@ -33,9 +34,17 @@ class OutreachError(RuntimeError):
 @dataclass(frozen=True)
 class Contact:
     contact_id: str
-    username: str
+    username: str | None
+    phone: str | None
     enabled: bool
     opt_in: bool
+
+    @property
+    def recipient_display(self) -> str:
+        if self.username:
+            return f"@{self.username}"
+        assert self.phone
+        return f"{self.phone[:2]}***{self.phone[-4:]}"
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,13 @@ def clean_username(value: str) -> str:
     return username
 
 
+def clean_phone(value: str) -> str:
+    phone = value.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    if not PHONE_RE.fullmatch(phone):
+        raise OutreachError(f"Phone must use E.164 format, for example +79991234567: {value!r}")
+    return phone
+
+
 def load_contacts(path: Path) -> dict[str, Contact]:
     contacts: dict[str, Contact] = {}
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -68,9 +84,16 @@ def load_contacts(path: Path) -> dict[str, Contact]:
             contact_id = (row.get("contact_id") or "").strip()
             if not contact_id or contact_id in contacts:
                 raise OutreachError(f"Missing or duplicate contact_id: {contact_id!r}")
+            username_raw = (row.get("username") or "").strip()
+            phone_raw = (row.get("phone") or "").strip()
+            if bool(username_raw) == bool(phone_raw):
+                raise OutreachError(
+                    f"Contact {contact_id!r} must have exactly one of username or phone"
+                )
             contacts[contact_id] = Contact(
                 contact_id=contact_id,
-                username=clean_username(row.get("username") or ""),
+                username=clean_username(username_raw) if username_raw else None,
+                phone=clean_phone(phone_raw) if phone_raw else None,
                 enabled=parse_bool(row.get("enabled") or ""),
                 opt_in=parse_bool(row.get("opt_in") or ""),
             )
@@ -151,8 +174,9 @@ def build_plan(
     return plan
 
 
-def telegram_deep_link(username: str, message: str) -> str:
-    query = urllib.parse.urlencode({"domain": username, "text": message})
+def telegram_deep_link(contact: Contact, message: str) -> str:
+    recipient = {"domain": contact.username} if contact.username else {"phone": contact.phone}
+    query = urllib.parse.urlencode({**recipient, "text": message})
     return f"tg://resolve?{query}"
 
 
@@ -175,7 +199,7 @@ def accessibility_enabled() -> bool:
 
 def send_via_telegram(contact: Contact, item: QueueItem, open_delay: float) -> None:
     subprocess.run(
-        ["/usr/bin/open", telegram_deep_link(contact.username, item.message)],
+        ["/usr/bin/open", telegram_deep_link(contact, item.message)],
         check=True,
         timeout=10,
     )
@@ -194,7 +218,7 @@ def append_journal(path: Path, contact: Contact, item: QueueItem, status: str, e
         "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "send_date": item.send_date,
         "contact_id": contact.contact_id,
-        "username": contact.username,
+        "recipient": contact.recipient_display,
         "fingerprint": item.fingerprint,
         "status": status,
     }
@@ -230,7 +254,7 @@ def main() -> int:
     print(f"Date: {args.date}; planned: {len(plan)}; mode: {'SEND' if args.send else 'DRY-RUN'}")
     for contact, item in plan:
         preview = item.message.replace("\n", " ")[:90]
-        print(f"- {contact.contact_id} (@{contact.username}): {preview}")
+        print(f"- {contact.contact_id} ({contact.recipient_display}): {preview}")
 
     if not args.send or not plan:
         return 0
