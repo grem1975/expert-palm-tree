@@ -1,0 +1,9 @@
+{
+  "send_enabled": false,
+  "daily_limit": 15,
+  "open_delay_seconds": 3,
+  "between_messages_seconds": 30,
+  "contacts_file": "contacts.csv",
+  "queue_file": "queue.csv",
+  "journal_file": "state/sent.jsonl"
+}

@@ -1,0 +1,6 @@
+state/
+contacts.csv
+queue.csv
+__pycache__/
+*.py[cod]
+.DS_Store
